@@ -1,0 +1,51 @@
+name: insitu
+
+services:
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        PYTORCH_VERSION: "2.7.0"
+        TORCHVISION_VERSION: "0.22.0"
+        TORCHAUDIO_VERSION: "2.7.0"
+    image: insitu-backend:rtx5090-cu128
+    container_name: insitu-backend-5090
+    working_dir: /workspace/InSitu
+    tty: true
+    stdin_open: true
+    ipc: host
+    shm_size: "32gb"
+
+    environment:
+      NVIDIA_VISIBLE_DEVICES: "all"
+      NVIDIA_DRIVER_CAPABILITIES: "compute,utility,graphics"
+      CUDA_VISIBLE_DEVICES: "0"
+      CUDA_HOME: "/usr/local/cuda"
+      FORCE_CUDA: "1"
+      TORCH_CUDA_ARCH_LIST: "12.0"
+      PYTHONUNBUFFERED: "1"
+      PYTHONDONTWRITEBYTECODE: "1"
+
+    volumes:
+      - ./:/workspace/InSitu
+      - insitu_cache:/root/.cache
+      - insitu_pip_cache:/root/.cache/pip
+
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+
+    ulimits:
+      memlock: -1
+      stack: 67108864
+
+    command: /bin/bash
+
+volumes:
+  insitu_cache:
+  insitu_pip_cache:

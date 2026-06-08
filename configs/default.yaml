@@ -1,0 +1,53 @@
+preset: balanced
+intermediate_dir: data/intermediate
+
+frame_extraction:
+  target_fps: 2
+  max_frames: 120
+  blur_threshold: 50.0
+  duplicate_threshold: 3.0
+  output_ext: png
+
+background_removal:
+  backend: opencv_grabcut
+  grabcut_iterations: 5
+  rect_margin_ratio: 0.08
+  max_processing_side: 512
+
+marker_detection:
+  enabled: false
+  dictionary: DICT_4X4_50
+  marker_ids: [23]
+  marker_size_m: 0.12
+  max_images: 60
+  require_detection: false
+
+colmap:
+  enabled: false
+  matcher: exhaustive
+  camera_model: SIMPLE_RADIAL
+  single_camera: true
+  use_gpu: false
+  timeout_sec: 1800
+  quality:
+    min_registered_images: 0
+    min_registered_ratio: 0.0
+    min_sparse_points: 0
+    max_reprojection_error: null
+    fail_on_low_quality: false
+
+training:
+  enabled: false
+  iterations: 0
+  timeout_sec: 7200
+  model_dir_name: 3dgs
+  expected_point_cloud: point_cloud/iteration_{iterations}/point_cloud.ply
+  command: []
+
+scale_estimation:
+  method: none_or_pending
+  source: training_point_cloud
+  scale_factor: 1.0
+
+proxy_generation:
+  method: none_or_pending

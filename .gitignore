@@ -1,0 +1,36 @@
+# Runtime outputs and generated artifacts
+output/
+data/intermediate/
+.test_tmp/
+
+# Local input captures and generated marker sheets
+data/input/*.mp4
+data/input/*.mov
+data/input/*.avi
+data/input/*.mkv
+data/markers/*.png
+data/markers/*.jpg
+data/markers/*.json
+
+# Python caches/build artifacts
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Logs and temporary files
+*.log
+*.tmp
+*.bak
+
+# OS / IDE
+.DS_Store
+.vscode/
+.idea/

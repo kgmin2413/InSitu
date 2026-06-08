@@ -1,0 +1,72 @@
+preset: chair_marker_sparse_proxy
+intermediate_dir: data/intermediate
+
+frame_extraction:
+  target_fps: 1
+  max_frames: 16
+  blur_threshold: 20.0
+  duplicate_threshold: 3.0
+  output_ext: png
+
+background_removal:
+  backend: opencv_grabcut
+  grabcut_iterations: 2
+  rect_margin_ratio: 0.08
+  max_processing_side: 384
+
+marker_detection:
+  enabled: true
+  dictionary: DICT_4X4_50
+  marker_ids: [23]
+  marker_size_m: 0.12
+  max_images: 16
+  require_detection: true
+
+colmap:
+  enabled: true
+  matcher: sequential
+  camera_model: SIMPLE_RADIAL
+  single_camera: true
+  use_gpu: false
+  timeout_sec: 600
+  quality:
+    min_registered_images: 6
+    min_registered_ratio: 0.25
+    min_sparse_points: 100
+    max_reprojection_error: 2.0
+    fail_on_low_quality: false
+
+training:
+  enabled: false
+  iterations: 0
+  timeout_sec: 900
+  model_dir_name: 3dgs_gsplat_marker_smoke
+  expected_point_cloud: point_cloud/iteration_{iterations}/point_cloud.ply
+  command: []
+
+scale_estimation:
+  method: aruco_marker
+  source: colmap_sparse
+  marker_id: 23
+  marker_size_m: 0.12
+  min_marker_observations: 2
+  max_reprojection_error: 2.0
+
+proxy_generation:
+  method: obb
+  voxel_size_m: 0.01
+  percentile_filter:
+    enabled: true
+    lower: 1.0
+    upper: 99.0
+  statistical_filter:
+    enabled: true
+    neighbors: 12
+    std_ratio: 2.0
+  cluster_filter:
+    enabled: false
+    eps: 0.08
+    min_samples: 8
+  flat_bottom:
+    enabled: true
+    up_axis: Y
