@@ -27,7 +27,7 @@ from marker_detection import run_marker_detection
 from run_baseline_acceptance import build_acceptance_commands
 from colmap_runner import _mean_reprojection_error, _quality_warnings, _registered_image_count, _sparse_point_count, run_colmap
 from generate_proxy import run_proxy_generation
-from scale_estimation import _denoise_vertices, _estimate_aruco_marker_scale, _parse_colmap_points, _vertices_to_colors, run_scale_estimation
+from scale_estimation import _denoise_vertices, _estimate_aruco_marker_scale, _filter_vertices_to_main_object, _parse_colmap_points, _vertices_to_colors, run_scale_estimation
 from train_3dgs import _count_ply_vertices, run_training
 from train_gsplat_adapter import build_gsplat_command, run_gsplat_adapter, stage_gsplat_dataset
 from utils import build_metadata, ensure_output_dirs, validate_object_id
@@ -460,6 +460,42 @@ class Stage1ScaffoldTests(unittest.TestCase):
         self.assertEqual(metadata["scale_method"], "manual")
         self.assertEqual(metadata["bbox_size_m"], [2.0, 4.0, 6.0])
         self.assertEqual(metadata["object_center_m"], [1.0, 2.0, 3.0])
+
+
+    def test_object_filter_keeps_largest_metric_cluster(self) -> None:
+        vertices = np.array(
+            [
+                (0.00, 0.00, 0.00),
+                (0.02, 0.00, 0.00),
+                (0.00, 0.02, 0.00),
+                (0.02, 0.02, 0.00),
+                (1.00, 1.00, 1.00),
+                (1.02, 1.00, 1.00),
+                (1.00, 1.02, 1.00),
+            ],
+            dtype=[("x", "f4"), ("y", "f4"), ("z", "f4")],
+        )
+
+        filtered, report = _filter_vertices_to_main_object(
+            vertices,
+            {
+                "enabled": True,
+                "percentile_enabled": False,
+                "percentile_lower": 1.0,
+                "percentile_upper": 99.0,
+                "cluster_enabled": True,
+                "cluster_voxel_size_m": 0.01,
+                "cluster_eps_m": 0.05,
+                "cluster_min_samples": 2,
+                "cluster_min_keep_ratio": 0.1,
+            },
+        )
+
+        self.assertEqual(len(filtered), 4)
+        self.assertEqual(report["status"], "success")
+        self.assertEqual(report["cluster"]["status"], "success")
+        self.assertEqual(report["cluster"]["removed_points"], 3)
+        self.assertTrue(np.all(_vertices_to_colors(filtered).shape == (4, 3)))
 
     def test_manual_scale_exports_colmap_sparse_points(self) -> None:
         object_id = f"chair_{uuid4().hex[:8]}"

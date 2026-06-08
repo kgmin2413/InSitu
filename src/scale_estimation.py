@@ -10,6 +10,7 @@ import cv2
 import numpy as np
 from PIL import Image, ImageDraw
 from plyfile import PlyData, PlyElement
+from sklearn.cluster import DBSCAN
 from sklearn.neighbors import NearestNeighbors
 
 from utils import write_json
@@ -56,6 +57,9 @@ def _read_scale_config(config: dict[str, Any]) -> dict[str, Any]:
     }
     denoise_config = scale_config.get("denoise", {})
     statistical_config = denoise_config.get("statistical", {})
+    object_filter_config = scale_config.get("object_filter", {})
+    percentile_config = object_filter_config.get("percentile", {})
+    cluster_config = object_filter_config.get("cluster", {})
     opacity_threshold_raw = denoise_config.get("opacity_threshold")
     opacity_threshold = float(opacity_threshold_raw) if opacity_threshold_raw is not None else None
     denoise = {
@@ -64,6 +68,17 @@ def _read_scale_config(config: dict[str, Any]) -> dict[str, Any]:
         "statistical_enabled": bool(statistical_config.get("enabled", False)),
         "statistical_neighbors": int(statistical_config.get("neighbors", 12)),
         "statistical_std_ratio": float(statistical_config.get("std_ratio", 2.0)),
+    }
+    object_filter = {
+        "enabled": bool(object_filter_config.get("enabled", False)),
+        "percentile_enabled": bool(percentile_config.get("enabled", True)),
+        "percentile_lower": float(percentile_config.get("lower", 1.0)),
+        "percentile_upper": float(percentile_config.get("upper", 99.0)),
+        "cluster_enabled": bool(cluster_config.get("enabled", True)),
+        "cluster_voxel_size_m": float(cluster_config.get("voxel_size_m", 0.01)),
+        "cluster_eps_m": float(cluster_config.get("eps_m", 0.02)),
+        "cluster_min_samples": int(cluster_config.get("min_samples", 8)),
+        "cluster_min_keep_ratio": float(cluster_config.get("min_keep_ratio", 0.1)),
     }
     max_reprojection_error_raw = scale_config.get("max_reprojection_error")
     max_reprojection_error = None
@@ -89,6 +104,16 @@ def _read_scale_config(config: dict[str, Any]) -> dict[str, Any]:
         raise ValueError("scale_estimation.denoise.statistical.neighbors must be at least 2")
     if denoise["statistical_std_ratio"] <= 0:
         raise ValueError("scale_estimation.denoise.statistical.std_ratio must be greater than 0")
+    if not 0.0 <= object_filter["percentile_lower"] < object_filter["percentile_upper"] <= 100.0:
+        raise ValueError("scale_estimation.object_filter.percentile lower/upper must satisfy 0 <= lower < upper <= 100")
+    if object_filter["cluster_voxel_size_m"] <= 0:
+        raise ValueError("scale_estimation.object_filter.cluster.voxel_size_m must be greater than 0")
+    if object_filter["cluster_eps_m"] <= 0:
+        raise ValueError("scale_estimation.object_filter.cluster.eps_m must be greater than 0")
+    if object_filter["cluster_min_samples"] < 1:
+        raise ValueError("scale_estimation.object_filter.cluster.min_samples must be at least 1")
+    if not 0.0 <= object_filter["cluster_min_keep_ratio"] <= 1.0:
+        raise ValueError("scale_estimation.object_filter.cluster.min_keep_ratio must be between 0 and 1")
     return {
         "method": method,
         "scale_factor": scale_factor,
@@ -98,6 +123,7 @@ def _read_scale_config(config: dict[str, Any]) -> dict[str, Any]:
         "min_marker_observations": min_marker_observations,
         "foreground_filter": foreground_filter,
         "denoise": denoise,
+        "object_filter": object_filter,
         "max_reprojection_error": max_reprojection_error,
     }
 
@@ -705,6 +731,104 @@ def _denoise_vertices(vertices: np.ndarray, denoise_config: dict[str, Any]) -> t
     return filtered, report
 
 
+
+def _filter_vertices_to_main_object(vertices: np.ndarray, filter_config: dict[str, Any]) -> tuple[np.ndarray, dict[str, Any] | None]:
+    if not filter_config.get("enabled"):
+        return vertices, None
+    report: dict[str, Any] = {
+        "enabled": True,
+        "input_points": int(len(vertices)),
+        "percentile_enabled": bool(filter_config["percentile_enabled"]),
+        "cluster_enabled": bool(filter_config["cluster_enabled"]),
+    }
+    if len(vertices) < 3:
+        report.update({"status": "skipped", "reason": "too few points", "kept_points": int(len(vertices)), "removed_points": 0})
+        return vertices, report
+
+    current = vertices
+    xyz = _vertices_to_xyz(current)
+    if filter_config["percentile_enabled"]:
+        lower_bounds = np.percentile(xyz, filter_config["percentile_lower"], axis=0)
+        upper_bounds = np.percentile(xyz, filter_config["percentile_upper"], axis=0)
+        keep = np.all((xyz >= lower_bounds) & (xyz <= upper_bounds), axis=1)
+        if np.count_nonzero(keep) >= 3:
+            current = current[keep].copy()
+            xyz = _vertices_to_xyz(current)
+            report["percentile"] = {
+                "status": "success",
+                "lower": filter_config["percentile_lower"],
+                "upper": filter_config["percentile_upper"],
+                "input_points": int(len(vertices)),
+                "kept_points": int(len(current)),
+                "removed_points": int(len(vertices) - len(current)),
+                "lower_bounds": [round(float(v), 6) for v in lower_bounds],
+                "upper_bounds": [round(float(v), 6) for v in upper_bounds],
+            }
+        else:
+            report["percentile"] = {"status": "skipped_too_few_points"}
+
+    if filter_config["cluster_enabled"]:
+        before_cluster = len(current)
+        voxel_size = float(filter_config["cluster_voxel_size_m"])
+        minimum = xyz.min(axis=0)
+        voxel_indices = np.floor((xyz - minimum) / voxel_size).astype(np.int64)
+        unique_voxels, first_indices, inverse = np.unique(
+            voxel_indices,
+            axis=0,
+            return_index=True,
+            return_inverse=True,
+        )
+        representative_points = xyz[first_indices]
+        labels = DBSCAN(
+            eps=float(filter_config["cluster_eps_m"]),
+            min_samples=int(filter_config["cluster_min_samples"]),
+        ).fit_predict(representative_points)
+        cluster_labels = [label for label in sorted(set(labels)) if label != -1]
+        if cluster_labels:
+            counts = {int(label): int(np.count_nonzero(labels == label)) for label in cluster_labels}
+            main_label = max(counts, key=counts.get)
+            keep = labels[inverse] == main_label
+            kept_count = int(np.count_nonzero(keep))
+            min_keep = max(3, int(before_cluster * float(filter_config["cluster_min_keep_ratio"])))
+            if kept_count >= min_keep:
+                current = current[keep].copy()
+                report["cluster"] = {
+                    "status": "success",
+                    "input_points": int(before_cluster),
+                    "kept_points": int(len(current)),
+                    "removed_points": int(before_cluster - len(current)),
+                    "voxel_size_m": voxel_size,
+                    "eps_m": float(filter_config["cluster_eps_m"]),
+                    "min_samples": int(filter_config["cluster_min_samples"]),
+                    "representative_points": int(len(representative_points)),
+                    "selected_label": int(main_label),
+                    "cluster_counts": counts,
+                    "noise_voxels": int(np.count_nonzero(labels == -1)),
+                }
+            else:
+                report["cluster"] = {
+                    "status": "skipped_min_keep_ratio",
+                    "input_points": int(before_cluster),
+                    "candidate_points": kept_count,
+                    "min_keep_points": int(min_keep),
+                    "cluster_counts": counts,
+                    "noise_voxels": int(np.count_nonzero(labels == -1)),
+                }
+        else:
+            report["cluster"] = {
+                "status": "skipped_no_clusters",
+                "input_points": int(before_cluster),
+                "representative_points": int(len(representative_points)),
+                "noise_voxels": int(np.count_nonzero(labels == -1)),
+            }
+
+    report.update({
+        "status": "success" if len(current) < int(report["input_points"]) else "skipped_no_change",
+        "kept_points": int(len(current)),
+        "removed_points": int(int(report["input_points"]) - len(current)),
+    })
+    return current, report
+
 def _write_rgb_inspection_point_cloud(vertices: np.ndarray, output_path: Path) -> str:
     colors = _vertices_to_colors(vertices)
     rgb_vertices = np.empty(
@@ -730,7 +854,8 @@ def _write_scaled_training_point_cloud(
     text_model_dir: Path | None,
     foreground_filter: dict[str, Any],
     denoise: dict[str, Any],
-) -> tuple[dict[str, Any], dict[str, Any] | None, dict[str, Any] | None]:
+    object_filter: dict[str, Any],
+) -> tuple[dict[str, Any], dict[str, Any] | None, dict[str, Any] | None, dict[str, Any] | None]:
     ply = PlyData.read(source_path)
     vertex_element = ply["vertex"]
     vertices = vertex_element.data
@@ -741,6 +866,7 @@ def _write_scaled_training_point_cloud(
         vertices, foreground_report = _filter_vertices_by_foreground_masks(vertices, output_dirs, text_model_dir, foreground_filter)
     vertices, denoise_report = _denoise_vertices(vertices, denoise)
     scaled_vertices = _scale_vertices(vertices, scale_factor)
+    scaled_vertices, object_filter_report = _filter_vertices_to_main_object(scaled_vertices, object_filter)
     elements = []
     for element in ply.elements:
         if element.name == "vertex":
@@ -757,7 +883,7 @@ def _write_scaled_training_point_cloud(
         "object_center_m": object_center_m,
         "point_count": int(len(scaled_vertices)),
         "point_cloud_metric_rgb": rgb_point_cloud,
-    }, foreground_report, denoise_report
+    }, foreground_report, denoise_report, object_filter_report
 
 
 def _update_metadata(output_dirs: dict[str, Path], updates: dict[str, Any]) -> None:
@@ -776,6 +902,7 @@ def run_scale_estimation(output_dirs: dict[str, Path], config: dict[str, Any]) -
     marker_scale_evidence = None
     foreground_filter_report = None
     denoise_report = None
+    object_filter_report = None
     text_model_dir_for_scale = None
 
     if method in {"none", "none_or_pending", "pending"}:
@@ -827,7 +954,7 @@ def run_scale_estimation(output_dirs: dict[str, Path], config: dict[str, Any]) -
             if colmap_summary_path.exists():
                 text_model_dir_value = _read_json(colmap_summary_path).get("text_model_dir")
                 text_model_dir_for_scale = _resolve_repo_path(text_model_dir_value) if text_model_dir_value else None
-        exported, foreground_filter_report, denoise_report = _write_scaled_training_point_cloud(
+        exported, foreground_filter_report, denoise_report, object_filter_report = _write_scaled_training_point_cloud(
             source_path,
             output_point_cloud,
             scale_factor,
@@ -835,6 +962,7 @@ def run_scale_estimation(output_dirs: dict[str, Path], config: dict[str, Any]) -
             text_model_dir_for_scale,
             scale_config["foreground_filter"],
             scale_config["denoise"],
+            scale_config["object_filter"],
         )
         source_kind = "training_point_cloud"
     else:
@@ -875,6 +1003,7 @@ def run_scale_estimation(output_dirs: dict[str, Path], config: dict[str, Any]) -
         "marker_scale_evidence": marker_scale_evidence,
         "foreground_filter": foreground_filter_report,
         "denoise": denoise_report,
+        "object_filter": object_filter_report,
         "point_cloud_metric_created": True,
         "point_cloud_metric": _relative_repo_path(output_point_cloud),
         "reconstruction_preview": reconstruction_preview,

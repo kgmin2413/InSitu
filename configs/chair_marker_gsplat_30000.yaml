@@ -81,6 +81,18 @@ scale_estimation:
       enabled: true
       neighbors: 12
       std_ratio: 2.0
+  object_filter:
+    enabled: true
+    percentile:
+      enabled: true
+      lower: 1.0
+      upper: 99.0
+    cluster:
+      enabled: true
+      voxel_size_m: 0.01
+      eps_m: 0.02
+      min_samples: 8
+      min_keep_ratio: 0.1
 
 proxy_generation:
   method: obb
