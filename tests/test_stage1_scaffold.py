@@ -24,6 +24,7 @@ from auto_pipeline import run_pipeline
 from create_unity_package import create_package
 from generate_aruco_sheet import generate_sheet
 from marker_detection import run_marker_detection
+from preprocess_inspyrenet import run_background_removal
 from run_baseline_acceptance import build_acceptance_commands
 from colmap_runner import _mean_reprojection_error, _quality_warnings, _registered_image_count, _sparse_point_count, run_colmap
 from generate_proxy import run_proxy_generation
@@ -239,6 +240,67 @@ class Stage1ScaffoldTests(unittest.TestCase):
         self.assertEqual(proxy_report["status"], "skipped")
         self.assertFalse(proxy_report["proxy_generation_ran"])
         self.assertFalse(proxy_report["proxy_model_created"])
+
+    def test_transparent_background_backend_writes_mask_manifest(self) -> None:
+        object_id = f"chair_{uuid4().hex[:8]}"
+        output_dirs = ensure_output_dirs(
+            self.tmp_dir / "output",
+            object_id,
+            {"intermediate_dir": str(self.tmp_dir / "intermediate")},
+        )
+        selected_frame = output_dirs["images_original"] / "000001.png"
+        image = np.full((32, 48, 3), 220, dtype=np.uint8)
+        cv2.rectangle(image, (12, 8), (35, 26), (30, 90, 180), -1)
+        self.assertTrue(cv2.imwrite(str(selected_frame), image))
+        (output_dirs["debug"] / "selected_frames.txt").write_text(
+            f"{selected_frame}\n",
+            encoding="utf-8",
+        )
+
+        fake_alpha = np.zeros((32, 48), dtype=np.uint8)
+        fake_alpha[8:27, 12:36] = 255
+        config = {
+            "background_removal": {
+                "backend": "transparent_background",
+                "alpha_threshold": 16,
+                "transparent_mode": "base",
+                "device": None,
+                "resize": "static",
+            }
+        }
+
+        with patch(
+            "preprocess_inspyrenet._create_transparent_background_remover",
+            return_value=object(),
+        ) as create_remover:
+            with patch(
+                "preprocess_inspyrenet._transparent_background_alpha",
+                return_value=fake_alpha,
+            ) as make_alpha:
+                result = run_background_removal(output_dirs, config)
+
+        self.assertEqual(result["metrics"]["mask_images_created"], 1)
+        create_remover.assert_called_once()
+        make_alpha.assert_called_once()
+
+        mask_manifest = read_json(output_dirs["debug"] / "mask_manifest.json")
+        self.assertEqual(mask_manifest["backend"], "transparent_background")
+        self.assertEqual(mask_manifest["alpha_threshold"], 16)
+        self.assertEqual(mask_manifest["transparent_mode"], "base")
+        self.assertIsNone(mask_manifest["device"])
+        self.assertEqual(mask_manifest["resize"], "static")
+        self.assertEqual(mask_manifest["mask_images_created"], 1)
+        self.assertEqual(
+            mask_manifest["frames"][0]["foreground_pixel_count"],
+            int(np.count_nonzero(fake_alpha)),
+        )
+        self.assertTrue((output_dirs["preview"] / "mask_preview.jpg").exists())
+        masked_image = cv2.imread(
+            str(output_dirs["images_masked"] / selected_frame.name),
+            cv2.IMREAD_UNCHANGED,
+        )
+        self.assertIsNotNone(masked_image)
+        self.assertEqual(masked_image.shape[2], 4)
 
     def test_colmap_enabled_missing_binary_fails_with_summary(self) -> None:
         object_id = f"chair_{uuid4().hex[:8]}"

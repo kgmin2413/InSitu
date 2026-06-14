@@ -1,9 +1,9 @@
-preset: chair_marker_gsplat_smoke
+preset: chair_marker_a4
 intermediate_dir: data/intermediate
 
 frame_extraction:
-  target_fps: 1
-  max_frames: 16
+  target_fps: 4
+  max_frames: 283
   blur_threshold: 20.0
   duplicate_threshold: 3.0
   output_ext: png
@@ -23,50 +23,44 @@ marker_detection:
   dictionary: DICT_4X4_50
   marker_ids: [23]
   marker_size_m: 0.12
-  max_images: 16
+  max_images: 283
   require_detection: true
 
 colmap:
   enabled: true
-  matcher: sequential
+  matcher: exhaustive
   camera_model: SIMPLE_RADIAL
   single_camera: true
   use_gpu: false
-  timeout_sec: 600
+  timeout_sec: 3600
   quality:
-    min_registered_images: 6
-    min_registered_ratio: 0.25
-    min_sparse_points: 100
+    min_registered_images: 12
+    min_registered_ratio: 0.1
+    min_sparse_points: 300
     max_reprojection_error: 2.0
-    fail_on_low_quality: false
+    fail_on_low_quality: true
 
 training:
   enabled: true
-  iterations: 10
-  timeout_sec: 900
-  model_dir_name: 3dgs_gsplat_marker_smoke
+  iterations: 30000
+  timeout_sec: 21600
+  model_dir_name: 3dgs_a4_marker
   expected_point_cloud: point_cloud/iteration_{iterations}/point_cloud.ply
   command:
     - python
-    - scripts/train_gsplat_adapter.py
-    - --gsplat_repo
-    - third_party/gsplat
+    - scripts/train_a4_adapter.py
+    - --a4_repo
+    - third_party/InSitu-A4
     - --images_dir
     - "{images_dir}"
-    - --masked_images_dir
-    - "{images_masked_dir}"
-    - --mask_background_color
-    - "255,255,255"
     - --sparse_model_dir
     - "{sparse_model_dir}"
     - --model_dir
     - "{model_dir}"
     - --iterations
     - "{iterations}"
-    - --data_factor
-    - "1"
     - --timeout_sec
-    - "900"
+    - "21600"
 
 scale_estimation:
   method: aruco_marker
@@ -76,8 +70,27 @@ scale_estimation:
   min_marker_observations: 2
   foreground_filter:
     enabled: true
-    min_observations: 1
+    min_observations: 2
     alpha_threshold: 16
+  denoise:
+    enabled: true
+    opacity_threshold: 0.05
+    statistical:
+      enabled: true
+      neighbors: 12
+      std_ratio: 2.0
+  object_filter:
+    enabled: true
+    percentile:
+      enabled: true
+      lower: 1.0
+      upper: 99.0
+    cluster:
+      enabled: true
+      voxel_size_m: 0.01
+      eps_m: 0.02
+      min_samples: 8
+      min_keep_ratio: 0.1
 
 proxy_generation:
   method: obb

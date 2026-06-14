@@ -9,10 +9,14 @@ frame_extraction:
   output_ext: png
 
 background_removal:
-  backend: opencv_grabcut
+  backend: inspyrenet
   grabcut_iterations: 2
   rect_margin_ratio: 0.08
   max_processing_side: 384
+  alpha_threshold: 16
+  transparent_mode: base
+  device: null
+  resize: static
 
 marker_detection:
   enabled: true

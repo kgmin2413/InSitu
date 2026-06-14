@@ -3,6 +3,9 @@ output/
 data/intermediate/
 .test_tmp/
 
+# External cloned repos and heavy reconstruction workspaces
+third_party/InSitu-A4/
+
 # Local input captures and generated marker sheets
 data/input/*.mp4
 data/input/*.mov

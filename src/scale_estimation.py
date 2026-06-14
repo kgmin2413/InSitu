@@ -173,6 +173,12 @@ def _scale_vertices(vertices: np.ndarray, scale_factor: float) -> np.ndarray:
         if axis not in scaled.dtype.names:
             raise RuntimeError(f"PLY vertex data is missing required '{axis}' property")
         scaled[axis] = scaled[axis] * scale_factor
+    # 3DGS stores anisotropic Gaussian radii in log-space as scale_0..2.
+    # Metric scaling must shrink/grow both centers and splat radii.
+    log_scale = float(np.log(scale_factor))
+    for axis in ("scale_0", "scale_1", "scale_2"):
+        if axis in (scaled.dtype.names or ()):
+            scaled[axis] = scaled[axis] + log_scale
     return scaled
 
 
