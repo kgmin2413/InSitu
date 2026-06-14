@@ -81,8 +81,11 @@ def compute_votes(vertices: np.ndarray, colmap_text_dir: Path, mask_dir: Path, m
         points = xyz @ rotation.T + translation[None, :]
         depth = points[:, 2]
         valid = depth > 1e-6
-        u = np.rint(fx * (points[:, 0] / depth) + cx).astype(np.int32)
-        v = np.rint(fy * (points[:, 1] / depth) + cy).astype(np.int32)
+        u = np.zeros(len(points), dtype=np.int32)
+        v = np.zeros(len(points), dtype=np.int32)
+        if np.any(valid):
+            u[valid] = np.rint(fx * (points[valid, 0] / depth[valid]) + cx).astype(np.int32)
+            v[valid] = np.rint(fy * (points[valid, 1] / depth[valid]) + cy).astype(np.int32)
         valid &= (u >= 0) & (u < width) & (v >= 0) & (v < height)
         indices = np.flatnonzero(valid)
         if len(indices):

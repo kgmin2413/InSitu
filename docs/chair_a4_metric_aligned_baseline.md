@@ -105,6 +105,24 @@ third_party/InSitu-A4/output/chair_insitu_a4pose_fgmask_result_20260611
 
 They are produced by the InSitu-A4-based reconstruction step. Keep the heavy A4 repo and outputs local; this repo tracks only the reproducible wrapper scripts and metadata logic.
 
+## Generic Furniture Script
+
+The chair wrapper now delegates to the generic furniture pipeline. For new furniture objects, prefer:
+
+```bash
+OBJECT_SLUG=table \
+A4_DATASET=third_party/InSitu-A4/data/table_a4pose_fgmask \
+A4_MODEL=third_party/InSitu-A4/output/table_a4pose_fgmask_result \
+A4_MARKER_IMAGE_DATASET=third_party/InSitu-A4/data/table_a4true \
+MARKER_ID=23 \
+MARKER_SIZE_M=0.12 \
+CURRENT_FRONT=-Z \
+TARGET_FRONT=+Z \
+bash scripts/run_a4_metric_aligned_baseline.sh
+```
+
+See `docs/furniture_a4_metric_pipeline.md` for the generalized furniture workflow.
+
 ## Why PLY, Not GLB
 
 For this baseline, the visual quality target is the 3DGS result itself. GLB mesh conversion is only a fallback preview path and loses too much Gaussian-splat quality for the chair. Runtime should render `point_cloud_metric.ply` with a Gaussian-splat renderer and use `proxy_collider.obj` only for collision/placement.
