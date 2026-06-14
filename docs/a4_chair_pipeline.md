@@ -10,7 +10,7 @@ This runbook captures the reproducible pipeline used for the current chair resul
 6. Align the final metric PLY for Unity/AR placement.
 7. Optionally export a GLB splatmesh preview; for best visual quality, use the 3DGS PLY directly and keep OBJ for collision.
 
-Generated captures, trained models, and output folders are intentionally not tracked in git.
+Generated captures, trained models, and output folders are intentionally not tracked in git. For new furniture objects, use `docs/furniture_a4_metric_pipeline.md`; this file preserves the chair-specific historical run context.
 
 ## External Inputs
 
@@ -59,7 +59,14 @@ python scripts/prune_gaussians_by_mask_votes.py \
 Package the mask-pruned PLY with ArUco metric scale:
 
 ```bash
-python scripts/package_a4pose_fgmask_pruned_r03_aruco.py
+python scripts/package_a4_metric_aruco.py \
+  --object-id chair_a4pose_fgmask_pruned_r03_30000_aruco_20260611 \
+  --a4-dataset third_party/InSitu-A4/data/chair_insitu_a4pose_fgmask_20260611 \
+  --a4-marker-image-dataset third_party/InSitu-A4/data/chair_insitu_a4true_20260611 \
+  --a4-model third_party/InSitu-A4/output/chair_insitu_a4pose_fgmask_result_20260611 \
+  --raw-ply third_party/InSitu-A4/output/chair_insitu_a4pose_fgmask_result_20260611/point_cloud/iteration_30000/point_cloud_maskvote_pruned_r03.ply \
+  --marker-id 23 \
+  --marker-size-m 0.12
 ```
 
 The strict background-cleaned output used for Unity placement was then created by DBSCAN largest-cluster filtering from the packaged metric PLY. If repeating manually, keep DBSCAN conservative until the chair backrest is verified.
@@ -70,8 +77,8 @@ Align the final strict PLY for Unity/AR:
 python scripts/align_point_cloud_for_unity.py \
   --source-dir output/chair_a4pose_fgmask_pruned_r03_dbscan_main_30000_aruco_20260611 \
   --object-id chair_a4pose_fgmask_pruned_r03_dbscan_main_aligned_30000_aruco_20260611 \
-  --current-front -Z \
-  --target-front +Z
+  --current-front=-Z \
+  --target-front=+Z
 ```
 
 Optional GLB preview export:

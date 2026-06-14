@@ -13,6 +13,14 @@ Given one furniture video, automatically produce:
 3. Metadata and processing logs.
 4. A predictable output folder that Unity can load.
 
+## Current Baseline Status
+
+The current implemented baseline uses InSitu-A4 for 3DGS reconstruction, ArUco marker observations for metric scale, mask-vote pruning plus DBSCAN for background cleanup, and a final Unity/AR alignment step that places the bottom center at `(0,0,0)` with `Y-up` and configurable front axis.
+
+The backend scope is asset generation and packaging. Unity/client runtime loading is intentionally outside this backend scope.
+
+See `docs/furniture_a4_metric_pipeline.md` for the generic furniture workflow and `docs/chair_a4_metric_aligned_baseline.md` for the known-good chair reference output.
+
 ## Pipeline
 Input video
 → frame extraction
@@ -20,10 +28,12 @@ Input video
 → background removal / object masking
 → COLMAP camera pose estimation
 → 3D Gaussian Splatting training
-→ metric scale estimation
-→ metric point cloud export
+→ ArUco metric scale estimation
+→ metric 3DGS PLY export
+→ DBSCAN foreground cluster cleanup
+→ bottom-center pivot / front-axis alignment
 → proxy collider generation
-→ Unity-ready output package
+→ client-ready output package
 
 ## Output Contract
 
